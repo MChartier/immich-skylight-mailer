@@ -1,0 +1,38 @@
+{
+  "name": "immich-skylight-mailer",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Automatically export media from an Immich album and send to Skylight via email. ",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "node --watch --loader ts-node/esm src/index.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MChartier/immich-skylight-mailer.git"
+  },
+  "author": "Matthew Chartier",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/MChartier/immich-skylight-mailer/issues"
+  },
+  "homepage": "https://github.com/MChartier/immich-skylight-mailer#readme",
+  "dependencies": {
+    "@immich/sdk": "^1.138.1",
+    "dayjs": "^1.11.18",
+    "form-data": "^4.0.4",
+    "mime": "^4.1.0",
+    "node-cron": "^4.2.1",
+    "nodemailer": "^7.0.6",
+    "p-limit": "^7.1.1",
+    "sharp": "^0.34.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.2",
+    "@types/nodemailer": "^7.0.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
