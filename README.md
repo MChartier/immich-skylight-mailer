@@ -6,7 +6,7 @@ Automates pulling new photos from an Immich album and emailing them to a Skyligh
 - Uses Immich's TypeScript SDK for album lookup and asset downloads
 - Converts images with `sharp` to frame-friendly JPEGs
 - Sends emails through `nodemailer`, batching attachments under configurable caps
-- Persists delivery state in `state/sent.json` to avoid resending photos
+- Persists per-recipient delivery state in `state/sent.json` so new frames can opt-in without resending to others
 - Supports one-shot runs or scheduled execution via cron expressions
 
 ## Requirements
@@ -98,5 +98,4 @@ Start the service with `docker compose up --build`. The first run executes immed
 ## Operational Notes
 - If you rotate SMTP or Immich credentials, restart the service so it picks up the new environment values.
 - A `DRY_RUN=1` launch will download and process assets without sending email—useful for validating your Immich API permissions.
-- To resend a photo, remove its asset ID entry from `state/sent.json` before the next run.
-
+- To resend a photo for a specific frame, remove that frame's email entry under the corresponding asset ID in `state/sent.json`.

@@ -3,8 +3,8 @@ import pLimit from "p-limit";
 import dayjs from "dayjs";
 import { findAlbumIdByName, listAlbumAssets, downloadOriginal } from "./immich.js";
 import { toFrameJpeg } from "./image.js";
-import { loadState, saveState } from "./state.js";
-import { packBatches, sendBatch } from "./mail.js";
+import { hasAssetBeenSent, loadState, markAssetSent, saveState } from "./state.js";
+import { packBatches, recipientEmails, sendBatch } from "./mail.js";
 import { safeBaseName } from "./util.js";
 
 const LOG_LEVEL = process.env.LOG_LEVEL || "info";
@@ -13,7 +13,8 @@ const DRY_RUN = process.env.DRY_RUN === "1";
 
 async function runOnce() {
   const started = Date.now();
-  const state = loadState();
+  const recipients = recipientEmails;
+  const state = loadState(recipients);
 
   const albumId = await findAlbumIdByName(process.env.IMMICH_ALBUM_NAME!);
   log("info", `Album resolved: ${albumId}`);
@@ -21,13 +22,14 @@ async function runOnce() {
   const allAssets = await listAlbumAssets(albumId);
 
   // Filter to IMAGES only; you can later handle videos separately if desired
-  const candidates = allAssets.filter(a => a.type === "IMAGE" && !state.sentAssetIds[a.id]);
+  const imageAssets = allAssets.filter(a => a.type === "IMAGE");
+  const candidates = imageAssets.filter(a => recipients.some(recipient => !hasAssetBeenSent(state, a.id, recipient)));
 
   if (!candidates.length) {
-    log("info", "No new photos to send. ✅");
+    log("info", "No new photos to send for any recipient. ✅");
     return;
   }
-  log("info", `Found ${candidates.length} unsent images.`);
+  log("info", `Found ${candidates.length} assets needing delivery for at least one recipient.`);
 
   // Download + convert in parallel with a cap (sharp benefits from some concurrency, but not too much)
   const limit = pLimit(4);
@@ -39,27 +41,39 @@ async function runOnce() {
       const datePrefix = date ? dayjs(date).format("YYYYMMDD_HHmmss") : undefined;
       const base = safeBaseName(a.originalFileName || `${a.id}.jpg`);
       const filename = datePrefix ? `${datePrefix}_${base}` : base;
-      return { asset: a, jpeg, filename };
+      return {
+        asset: a,
+        attachment: {
+          filename: filename.endsWith(".jpg") || filename.endsWith(".jpeg") ? filename : `${filename}.jpg`,
+          content: jpeg,
+          contentType: "image/jpeg"
+        }
+      };
     }))
   );
+  for (const recipient of recipients) {
+    const unsentForRecipient = processed.filter(p => !hasAssetBeenSent(state, p.asset.id, recipient));
+    if (!unsentForRecipient.length) {
+      log("debug", `No new photos for ${recipient}.`);
+      continue;
+    }
 
-  // Batch by total bytes
-  const attachments = processed.map(p => ({
-    filename: p.filename.endsWith(".jpg") || p.filename.endsWith(".jpeg") ? p.filename : (p.filename + ".jpg"),
-    content: p.jpeg,
-    contentType: "image/jpeg"
-  }));
-  const batches = packBatches(attachments);
-  log("info", `Prepared ${attachments.length} files into ${batches.length} email batch(es).`);
+    const attachments = unsentForRecipient.map(p => p.attachment);
+    const batches = packBatches(attachments);
+    log("info", `Prepared ${attachments.length} files into ${batches.length} email batch(es) for ${recipient}.`);
 
-  // Send batches
-  for (let i = 0; i < batches.length; i++) {
-    await sendBatch(batches[i], i, batches.length);
+    for (let i = 0; i < batches.length; i++) {
+      await sendBatch(recipient, batches[i], i, batches.length);
+    }
+
+    if (!DRY_RUN) {
+      const sentAt = new Date().toISOString();
+      for (const p of unsentForRecipient) {
+        markAssetSent(state, p.asset.id, recipient, sentAt);
+      }
+    }
   }
 
-  // Mark sent
-  const nowIso = new Date().toISOString();
-  for (const p of processed) state.sentAssetIds[p.asset.id] = nowIso;
   if (!DRY_RUN) saveState(state);
 
   const secs = ((Date.now() - started) / 1000).toFixed(1);

@@ -25,6 +25,7 @@ const transporter = nodemailer.createTransport({
 });
 
 export type Attachment = { filename: string; content: Buffer; contentType?: string; };
+export const recipientEmails = toEmails;
 
 /**
  * Packs items into batches based on size and attachment limits.
@@ -64,7 +65,7 @@ export function packBatches(items: Attachment[]): Attachment[][] {
  * @param totalBatches The total number of batches
  * @returns A promise that resolves when the email is sent
  */
-export async function sendBatch(attachments: Attachment[], batchIndex: number, totalBatches: number) {
+export async function sendBatch(recipient: string, attachments: Attachment[], batchIndex: number, totalBatches: number) {
   const subject = totalBatches > 1
     ? `New photos for your Skylight (Batch ${batchIndex + 1} of ${totalBatches})`
     : `New photos for your Skylight`;
@@ -72,13 +73,13 @@ export async function sendBatch(attachments: Attachment[], batchIndex: number, t
   const sizeMB = (attachments.reduce((n, a) => n + a.content.byteLength, 0) / (1024 * 1024)).toFixed(1);
 
   if (DRY_RUN) {
-    console.log(`[DRY_RUN] Would send: ${attachments.length} attachments, ~${sizeMB} MB, subject="${subject}" to=${toEmails.join(", ")}`);
+    console.log(`[DRY_RUN] Would send: ${attachments.length} attachments, ~${sizeMB} MB, subject="${subject}" to=${recipient}`);
     return;
   }
 
   await transporter.sendMail({
     from: fromEmail,
-    to: toEmails,
+    to: recipient,
     subject,
     text: `Enjoy the latest photos! This email contains ${attachments.length} images (~${sizeMB} MB).`,
     attachments: attachments.map(a => ({
@@ -88,5 +89,5 @@ export async function sendBatch(attachments: Attachment[], batchIndex: number, t
     }))
   });
 
-  console.log(`Sent batch ${batchIndex + 1}/${totalBatches}: ${attachments.length} files, ~${sizeMB} MB`);
+  console.log(`Sent batch ${batchIndex + 1}/${totalBatches} to ${recipient}: ${attachments.length} files, ~${sizeMB} MB`);
 }
