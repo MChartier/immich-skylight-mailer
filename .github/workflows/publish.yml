@@ -1,0 +1,79 @@
+name: Publish Docker Image
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  IMAGE_NAME: matthewchartier/immich-skylight-mailer
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine package version change
+        id: version
+        run: |
+          set -euo pipefail
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          echo "current=${CURRENT_VERSION}" >> "$GITHUB_OUTPUT"
+
+          PREVIOUS_VERSION=""
+          if git rev-parse HEAD^ >/dev/null 2>&1; then
+            git show HEAD^:package.json > /tmp/previous-package.json 2>/dev/null || true
+            if [ -s /tmp/previous-package.json ]; then
+              PREVIOUS_VERSION=$(node -p "(() => { const fs=require('fs'); const data=JSON.parse(fs.readFileSync('/tmp/previous-package.json','utf8')); return typeof data.version === 'string' ? data.version : ''; })()")
+            fi
+          fi
+
+          echo "previous=${PREVIOUS_VERSION}" >> "$GITHUB_OUTPUT"
+
+          if [ -n "${CURRENT_VERSION}" ] && [ "${CURRENT_VERSION}" != "${PREVIOUS_VERSION}" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check existing Docker tag
+        id: tag
+        if: steps.version.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.current }}
+        run: |
+          set -euo pipefail
+          if docker manifest inspect "${IMAGE_NAME}:${VERSION}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Login to Docker Hub
+        if: steps.tag.outputs.exists == 'false'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        if: steps.tag.outputs.exists == 'false'
+        env:
+          VERSION: ${{ steps.version.outputs.current }}
+        run: |
+          set -euo pipefail
+          docker build -t "${IMAGE_NAME}:${VERSION}" -t "${IMAGE_NAME}:latest" .
+          docker push "${IMAGE_NAME}:${VERSION}"
+          docker push "${IMAGE_NAME}:latest"
+
+      - name: Skip publish (version unchanged)
+        if: steps.version.outputs.changed != 'true'
+        run: echo "Package version did not change; skipping image publish."
+
+      - name: Skip publish (image tag exists)
+        if: steps.version.outputs.changed == 'true' && steps.tag.outputs.exists == 'true'
+        run: echo "Image tag ${IMAGE_NAME}:${{ steps.version.outputs.current }} already exists; skipping rebuild and latest update."
